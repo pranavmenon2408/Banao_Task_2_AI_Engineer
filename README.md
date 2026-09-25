@@ -21,11 +21,19 @@ data/train.csv  data/test_unlabelled.csv  data/partners.csv  data/products.csv  
 
 ## Run the service
 
+Two terminals, both inside the activated venv:
+
 ```bash
-uvicorn app.main:app --port 8000
+uvicorn app.main:app --port 8000          # 1. the scoring API
+streamlit run ui/streamlit_app.py          # 2. the screen -> http://localhost:8501
 ```
 
-- Screen: http://localhost:8000. Pick an example claim or type one in, then press **Score claim**.
+- **Screen (Streamlit)** has three tabs:
+  - **Score a claim:** calls the API.
+  - **Jul-Sep predictions:** the scored test set, the desk worklist and the partner watchlist.
+  - **How well it works:** walk-forward results, a calibration check and the model comparison.
+  - If the screen runs on another host or port from the API, set `KESTREL_API_URL`.
+- A fallback single-page screen is also served by the API itself at http://localhost:8000.
 - API: `POST /score` with one claim as JSON. Interactive docs are at http://localhost:8000/docs.
 - `GET /health` reports whether the model and the claims history loaded.
 
@@ -47,6 +55,8 @@ The service still starts if something is missing:
 
 ```bash
 python scripts/evaluate.py   # walk-forward validation -> reports/evaluation.json, reports/walk_forward_*.csv
+python scripts/experiments.py      # feature/regularisation ideas vs seed noise -> reports/experiments.csv
+python scripts/compare_models.py   # LR / SVM (linear, RBF, poly, sigmoid) / RF / ExtraTrees vs LightGBM -> docs/model_comparison.md
 python scripts/train.py      # final model -> artifacts/, predictions.csv, reports/desk_queue.csv, reports/partner_watchlist.csv
 ```
 
