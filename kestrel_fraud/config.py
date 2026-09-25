@@ -27,6 +27,10 @@ LABEL_LAG_DAYS = 14
 
 METRO_CITIES = {"Mumbai", "Delhi", "Bengaluru", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad"}
 
+# Common-sense direction: more confirmed partner fraud, more prior customer claims, or a claim
+# closer to list price can only raise risk. Chosen by walk-forward (post-May PR-AUC 0.229 -> 0.267).
+MONOTONE_UP = ["p_fraud_rate_smoothed", "p_fraud_n", "p_fraud_90d", "customer_prior_claims", "amount_to_list"]
+
 LGBM_PARAMS = dict(
     objective="binary",
     learning_rate=0.03,

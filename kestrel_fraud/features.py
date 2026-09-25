@@ -49,6 +49,13 @@ def _claim_level(df, partners, products):
     return df
 
 
+# candidate features evaluated in scripts/experiments.py; only promoted into FEATURES if they help
+DRIFT = ["drift_small_share", "drift_near_limit_share", "drift_uninspected_share", "drift_amount_to_list"]
+PEER = ["rel_small_share", "rel_near_limit_share", "rel_uninspected_share"]
+CITY = ["city_fraud_rate"]
+NOISY = ["serial_prior_claims", "serial_prior_other_partner", "p_serial_repeat_share_90d", "serial_messy", "family"]
+
+
 def _window_sum(times, values, t_end, days):
     """Sum of values over (t_end - days, t_end) for sorted times - strictly before t_end."""
     csum = np.concatenate([[0.0], np.cumsum(values)])
@@ -61,7 +68,8 @@ def _partner_history(df, label_cutoff, prior_rate, label_lag_days, prior_weight=
     out = {c: np.zeros(len(df)) for c in [
         "p_claims_30d", "p_claims_90d", "p_claims_180d", "p_small_30d", "p_near_30d",
         "p_uninsp_30d", "p_ratio_sum_90d", "p_serial_rep_90d", "p_prior_sum_90d",
-        "p_labelled_n", "p_fraud_n", "p_fraud_90d"]}
+        "p_labelled_n", "p_fraud_n", "p_fraud_90d",
+        "p_small_180d", "p_near_180d", "p_uninsp_180d", "p_ratio_sum_180d"]}
     cutoff = np.datetime64(label_cutoff) if label_cutoff is not None else None
     for _, idx in df.groupby("partner_id").indices.items():
         g = df.iloc[idx]
@@ -76,6 +84,10 @@ def _partner_history(df, label_cutoff, prior_rate, label_lag_days, prior_weight=
         out["p_ratio_sum_90d"][idx] = _window_sum(t, g["amount_to_list"].values, t, 90)
         out["p_serial_rep_90d"][idx] = _window_sum(t, (g["serial_prior_claims"].values > 0).astype(float), t, 90)
         out["p_prior_sum_90d"][idx] = _window_sum(t, g["customer_prior_claims"].values.astype(float), t, 90)
+        out["p_small_180d"][idx] = _window_sum(t, g["is_small"].values, t, 180)
+        out["p_near_180d"][idx] = _window_sum(t, g["near_limit"].values, t, 180)
+        out["p_uninsp_180d"][idx] = _window_sum(t, 1 - g["partner_inspected"].values, t, 180)
+        out["p_ratio_sum_180d"][idx] = _window_sum(t, g["amount_to_list"].values, t, 180)
 
         # outcomes known by the time of each claim
         lab = g["is_fraud"].notna().to_numpy(copy=True)
@@ -103,6 +115,38 @@ def _partner_history(df, label_cutoff, prior_rate, label_lag_days, prior_weight=
     f["p_serial_repeat_share_90d"] = f["p_serial_rep_90d"] / n90.clip(lower=1)
     f["p_prior_claims_mean_90d"] = f["p_prior_sum_90d"] / n90.clip(lower=1)
     f["p_fraud_rate_smoothed"] = (f["p_fraud_n"] + prior_rate * prior_weight) / (f["p_labelled_n"] + prior_weight)
+
+    # drift: last 30 days vs the partner's own previous 5 months
+    older = (f["p_claims_180d"] - n30).clip(lower=1)
+    f["drift_small_share"] = f["p_small_share_30d"] - (f["p_small_180d"] - f["p_small_30d"]) / older
+    f["drift_near_limit_share"] = f["p_near_limit_share_30d"] - (f["p_near_180d"] - f["p_near_30d"]) / older
+    f["drift_uninspected_share"] = f["p_uninspected_share_30d"] - (f["p_uninsp_180d"] - f["p_uninsp_30d"]) / older
+    f["drift_amount_to_list"] = f["p_mean_amount_to_list_90d"] - f["p_ratio_sum_180d"] / f["p_claims_180d"].clip(lower=1)
+    return f
+
+
+def _market_and_city(df, label_cutoff, prior_rate, label_lag_days, prior_weight=50.0):
+    """Network-wide 30-day shares (peer baseline) and time-safe city fraud rate."""
+    t = df["ts"].values
+    n = _window_sum(t, np.ones(len(df)), t, 30).clip(1)
+    f = pd.DataFrame(index=df.index)
+    f["rel_small_share"] = _window_sum(t, df["is_small"].values, t, 30) / n
+    f["rel_near_limit_share"] = _window_sum(t, df["near_limit"].values, t, 30) / n
+    f["rel_uninspected_share"] = _window_sum(t, 1 - df["partner_inspected"].values, t, 30) / n
+    f["city_fraud_rate"] = 0.0
+    cutoff = np.datetime64(label_cutoff) if label_cutoff is not None else None
+    for _, idx in df.groupby("city").indices.items():
+        g = df.iloc[idx]
+        tt = g["ts"].values
+        lab = g["is_fraud"].notna().to_numpy(copy=True)
+        if cutoff is not None:
+            lab &= tt < cutoff
+        known_until = tt - np.timedelta64(label_lag_days, "D")
+        if cutoff is not None:
+            known_until = np.minimum(known_until, cutoff)
+        k = np.searchsorted(tt[lab], known_until, side="left")
+        cf = np.concatenate([[0.0], np.cumsum(g["is_fraud"].values[lab])])[k]
+        f.loc[f.index[idx], "city_fraud_rate"] = (cf + prior_rate * prior_weight) / (k + prior_weight)
     return f
 
 
@@ -121,6 +165,11 @@ def build_features(claims, partners, products, label_cutoff=None, prior_rate=0.0
     df["serial_prior_other_partner"] = df["serial_prior_claims"] - df.groupby(["serial_norm", "partner_id"]).cumcount()
     hist = _partner_history(df, label_cutoff, prior_rate, label_lag_days)
     df = pd.concat([df, hist], axis=1)
+    mkt = _market_and_city(df, label_cutoff, prior_rate, label_lag_days)
+    for c in ["small_share", "near_limit_share", "uninspected_share"]:
+        base = "p_near_limit_share_30d" if c == "near_limit_share" else f"p_{c}_30d"
+        df[f"rel_{c}"] = df[base] - mkt[f"rel_{c}"]
+    df["city_fraud_rate"] = mkt["city_fraud_rate"]
     # fixed category sets so batch training and single-record scoring encode identically
     df["partner_type"] = pd.Categorical(df["partner_type"], categories=sorted(partners["partner_type"].unique()))
     df["family"] = pd.Categorical(df["family"], categories=sorted(products["family"].unique()))

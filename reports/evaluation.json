@@ -2,28 +2,28 @@
   "all_folds": {
     "claims": 6540,
     "frauds": 95,
-    "pooled_pr_auc": 0.4577520324450402,
-    "pooled_roc_auc": 0.7584092115470988,
-    "mean_monthly_pr_auc": 0.5153960533067028,
-    "desk_net_inr_per_month": 25810.11111111111,
-    "desk_precision": 0.59375,
-    "desk_recall": 0.4,
-    "desk_inr_recall": 0.6464408549241564,
-    "desk_reviews_per_month": 7.111111111111111,
-    "precision_at_40": 0.14722222222222225,
-    "recall_at_40": 0.591919191919192,
+    "pooled_pr_auc": 0.46463917608469485,
+    "pooled_roc_auc": 0.7565848679106612,
+    "mean_monthly_pr_auc": 0.5083867376554408,
+    "desk_net_inr_per_month": 25754.555555555555,
+    "desk_precision": 0.582089552238806,
+    "desk_recall": 0.4105263157894737,
+    "desk_inr_recall": 0.6490384975634612,
+    "desk_reviews_per_month": 7.444444444444445,
+    "precision_at_40": 0.15,
+    "recall_at_40": 0.5954264870931536,
     "best_f1": {
-      "threshold": 0.19369503322316273,
-      "precision": 0.6721311475409836,
-      "recall": 0.43157894736842106,
-      "f1": 0.5256410256410255
+      "threshold": 0.16648554861943737,
+      "precision": 0.6714285714285714,
+      "recall": 0.49473684210526314,
+      "f1": 0.5696969696969696
     },
     "confusion_at_best_f1": {
-      "tp": 41,
-      "fp": 20,
-      "fn": 54,
-      "tn": 6425,
-      "accuracy": 0.9886850152905199
+      "tp": 47,
+      "fp": 23,
+      "fn": 48,
+      "tn": 6422,
+      "accuracy": 0.9891437308868501
     },
     "accuracy_if_flag_nothing": 0.985474006116208,
     "baselines_net_inr_per_month": {
@@ -36,28 +36,28 @@
   "pre_policy": {
     "claims": 5118,
     "frauds": 59,
-    "pooled_pr_auc": 0.5679661600738192,
-    "pooled_roc_auc": 0.8316341743695579,
-    "mean_monthly_pr_auc": 0.5982810835035695,
-    "desk_net_inr_per_month": 33516.0,
-    "desk_precision": 0.7,
+    "pooled_pr_auc": 0.564151441273054,
+    "pooled_roc_auc": 0.8316978300126305,
+    "mean_monthly_pr_auc": 0.5786443422983264,
+    "desk_net_inr_per_month": 33333.142857142855,
+    "desk_precision": 0.6730769230769231,
     "desk_recall": 0.5932203389830508,
     "desk_inr_recall": 0.7601488416756692,
-    "desk_reviews_per_month": 7.142857142857143,
+    "desk_reviews_per_month": 7.428571428571429,
     "precision_at_40": 0.13214285714285715,
-    "recall_at_40": 0.6571428571428571,
+    "recall_at_40": 0.6551587301587302,
     "best_f1": {
-      "threshold": 0.2710893947063645,
-      "precision": 0.8333333333333334,
+      "threshold": 0.2428700159632422,
+      "precision": 0.7777777777777778,
       "recall": 0.5932203389830508,
-      "f1": 0.6930693069306931
+      "f1": 0.673076923076923
     },
     "confusion_at_best_f1": {
       "tp": 35,
-      "fp": 7,
+      "fp": 10,
       "fn": 24,
-      "tn": 5052,
-      "accuracy": 0.9939429464634623
+      "tn": 5049,
+      "accuracy": 0.9933567799921844
     },
     "accuracy_if_flag_nothing": 0.9884720593982024,
     "baselines_net_inr_per_month": {
@@ -70,28 +70,28 @@
   "post_policy": {
     "claims": 1422,
     "frauds": 36,
-    "pooled_pr_auc": 0.22607872404089094,
-    "pooled_roc_auc": 0.6101290684624019,
-    "mean_monthly_pr_auc": 0.22529844761766954,
-    "desk_net_inr_per_month": -1160.5,
-    "desk_precision": 0.21428571428571427,
-    "desk_recall": 0.08333333333333333,
-    "desk_inr_recall": 0.0819242286548575,
-    "desk_reviews_per_month": 7.0,
-    "precision_at_40": 0.2,
-    "recall_at_40": 0.36363636363636365,
+    "pooled_pr_auc": 0.27004879505817014,
+    "pooled_roc_auc": 0.6098885682219015,
+    "mean_monthly_pr_auc": 0.26248512140534114,
+    "desk_net_inr_per_month": -770.5,
+    "desk_precision": 0.26666666666666666,
+    "desk_recall": 0.1111111111111111,
+    "desk_inr_recall": 0.09741817260849485,
+    "desk_reviews_per_month": 7.5,
+    "precision_at_40": 0.2125,
+    "recall_at_40": 0.38636363636363635,
     "best_f1": {
-      "threshold": 0.060367190513147546,
-      "precision": 0.42105263157894735,
-      "recall": 0.4444444444444444,
-      "f1": 0.43243243243243246
+      "threshold": 0.058905534465454885,
+      "precision": 0.3953488372093023,
+      "recall": 0.4722222222222222,
+      "f1": 0.43037974683544306
     },
     "confusion_at_best_f1": {
-      "tp": 16,
-      "fp": 22,
-      "fn": 20,
-      "tn": 1364,
-      "accuracy": 0.9704641350210971
+      "tp": 17,
+      "fp": 26,
+      "fn": 19,
+      "tn": 1360,
+      "accuracy": 0.9683544303797469
     },
     "accuracy_if_flag_nothing": 0.9746835443037974,
     "baselines_net_inr_per_month": {
@@ -103,16 +103,16 @@
   },
   "zoho_sensitivity": {
     "drop": {
-      "net_inr": 26920.285714285714,
-      "pr_auc": 0.5201188462509118
+      "net_inr": 27139.714285714286,
+      "pr_auc": 0.5357089911531224
     },
     "unweighted": {
       "net_inr": 25881.222222222223,
       "pr_auc": 0.5087260442962943
     },
     "weighted(default)": {
-      "net_inr": 25810.11111111111,
-      "pr_auc": 0.5153960533067028
+      "net_inr": 25754.555555555555,
+      "pr_auc": 0.5083867376554408
     }
   }
 }

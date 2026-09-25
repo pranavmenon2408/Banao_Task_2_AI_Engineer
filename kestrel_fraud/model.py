@@ -2,7 +2,7 @@
 import lightgbm as lgb
 import numpy as np
 
-from .config import LGBM_PARAMS, POLICY_CHANGE, POST_POLICY_WEIGHT, ZOHO_NEGATIVE_WEIGHT
+from .config import LGBM_PARAMS, MONOTONE_UP, POLICY_CHANGE, POST_POLICY_WEIGHT, ZOHO_NEGATIVE_WEIGHT
 from .features import FEATURES
 
 
@@ -15,15 +15,20 @@ def sample_weights(df, post_policy_weight=POST_POLICY_WEIGHT):
     return w
 
 
-def fit(train_df, params=None, post_policy_weight=POST_POLICY_WEIGHT):
+def monotone(features):
+    return {"monotone_constraints": [1 if f in MONOTONE_UP else 0 for f in features],
+            "monotone_constraints_method": "advanced"}
+
+
+def fit(train_df, params=None, post_policy_weight=POST_POLICY_WEIGHT, features=FEATURES, constrained=True):
     train_df = train_df[train_df["is_fraud"].notna()]
-    model = lgb.LGBMClassifier(**{**LGBM_PARAMS, **(params or {})})
-    model.fit(train_df[FEATURES], train_df["is_fraud"].astype(int), sample_weight=sample_weights(train_df, post_policy_weight))
+    model = lgb.LGBMClassifier(**{**LGBM_PARAMS, **(monotone(features) if constrained else {}), **(params or {})})
+    model.fit(train_df[features], train_df["is_fraud"].astype(int), sample_weight=sample_weights(train_df, post_policy_weight))
     return model
 
 
 def predict(model, df):
-    return model.predict_proba(df[FEATURES])[:, 1]
+    return model.predict_proba(df[model.feature_name_])[:, 1]
 
 
 def contributions(model, df):
