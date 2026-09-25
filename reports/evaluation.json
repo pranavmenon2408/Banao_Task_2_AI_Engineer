@@ -1,0 +1,118 @@
+{
+  "all_folds": {
+    "claims": 6540,
+    "frauds": 95,
+    "pooled_pr_auc": 0.4577520324450402,
+    "pooled_roc_auc": 0.7584092115470988,
+    "mean_monthly_pr_auc": 0.5153960533067028,
+    "desk_net_inr_per_month": 25810.11111111111,
+    "desk_precision": 0.59375,
+    "desk_recall": 0.4,
+    "desk_inr_recall": 0.6464408549241564,
+    "desk_reviews_per_month": 7.111111111111111,
+    "precision_at_40": 0.14722222222222225,
+    "recall_at_40": 0.591919191919192,
+    "best_f1": {
+      "threshold": 0.19369503322316273,
+      "precision": 0.6721311475409836,
+      "recall": 0.43157894736842106,
+      "f1": 0.5256410256410255
+    },
+    "confusion_at_best_f1": {
+      "tp": 41,
+      "fp": 20,
+      "fn": 54,
+      "tn": 6425,
+      "accuracy": 0.9886850152905199
+    },
+    "accuracy_if_flag_nothing": 0.985474006116208,
+    "baselines_net_inr_per_month": {
+      "random": -24098.777777777777,
+      "newest_partner_first": -24848.666666666668,
+      "largest_amount_first": -1210.5555555555557,
+      "rule_near_limit_uninspected": -12548.111111111111
+    }
+  },
+  "pre_policy": {
+    "claims": 5118,
+    "frauds": 59,
+    "pooled_pr_auc": 0.5679661600738192,
+    "pooled_roc_auc": 0.8316341743695579,
+    "mean_monthly_pr_auc": 0.5982810835035695,
+    "desk_net_inr_per_month": 33516.0,
+    "desk_precision": 0.7,
+    "desk_recall": 0.5932203389830508,
+    "desk_inr_recall": 0.7601488416756692,
+    "desk_reviews_per_month": 7.142857142857143,
+    "precision_at_40": 0.13214285714285715,
+    "recall_at_40": 0.6571428571428571,
+    "best_f1": {
+      "threshold": 0.2710893947063645,
+      "precision": 0.8333333333333334,
+      "recall": 0.5932203389830508,
+      "f1": 0.6930693069306931
+    },
+    "confusion_at_best_f1": {
+      "tp": 35,
+      "fp": 7,
+      "fn": 24,
+      "tn": 5052,
+      "accuracy": 0.9939429464634623
+    },
+    "accuracy_if_flag_nothing": 0.9884720593982024,
+    "baselines_net_inr_per_month": {
+      "random": -24267.285714285714,
+      "newest_partner_first": -25600.0,
+      "largest_amount_first": 3151.285714285714,
+      "rule_near_limit_uninspected": -11529.714285714286
+    }
+  },
+  "post_policy": {
+    "claims": 1422,
+    "frauds": 36,
+    "pooled_pr_auc": 0.22607872404089094,
+    "pooled_roc_auc": 0.6101290684624019,
+    "mean_monthly_pr_auc": 0.22529844761766954,
+    "desk_net_inr_per_month": -1160.5,
+    "desk_precision": 0.21428571428571427,
+    "desk_recall": 0.08333333333333333,
+    "desk_inr_recall": 0.0819242286548575,
+    "desk_reviews_per_month": 7.0,
+    "precision_at_40": 0.2,
+    "recall_at_40": 0.36363636363636365,
+    "best_f1": {
+      "threshold": 0.060367190513147546,
+      "precision": 0.42105263157894735,
+      "recall": 0.4444444444444444,
+      "f1": 0.43243243243243246
+    },
+    "confusion_at_best_f1": {
+      "tp": 16,
+      "fp": 22,
+      "fn": 20,
+      "tn": 1364,
+      "accuracy": 0.9704641350210971
+    },
+    "accuracy_if_flag_nothing": 0.9746835443037974,
+    "baselines_net_inr_per_month": {
+      "random": -23509.0,
+      "newest_partner_first": -22219.0,
+      "largest_amount_first": -16477.0,
+      "rule_near_limit_uninspected": -16112.5
+    }
+  },
+  "zoho_sensitivity": {
+    "drop": {
+      "net_inr": 26920.285714285714,
+      "pr_auc": 0.5201188462509118
+    },
+    "unweighted": {
+      "net_inr": 25881.222222222223,
+      "pr_auc": 0.5087260442962943
+    },
+    "weighted(default)": {
+      "net_inr": 25810.11111111111,
+      "pr_auc": 0.5153960533067028
+    }
+  }
+}

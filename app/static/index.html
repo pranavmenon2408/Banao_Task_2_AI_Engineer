@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kestrel Claim Review</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1c2230; --muted:#5d6678; --line:#dde1e8;
+          --high:#b42318; --med:#b54708; --low:#067647; --accent:#1f4fd1; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input, select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  button { margin-top:16px; width:100%; padding:10px; background:var(--accent); color:#fff; border:0; border-radius:6px; font:600 15px system-ui; cursor:pointer; }
+  button:disabled { opacity:.6; }
+  .presets { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; }
+  .presets button { width:auto; margin:0; padding:5px 10px; font-size:13px; background:#eef2fb; color:var(--accent); }
+  .verdict { font-size:18px; font-weight:700; padding:10px 12px; border-radius:6px; margin-bottom:10px; }
+  .v-desk { background:#fee4e2; color:var(--high); } .v-flag { background:#fef0c7; color:var(--med); } .v-pay { background:#dcfae6; color:var(--low); }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:12px 0; }
+  .kpi { border:1px solid var(--line); border-radius:6px; padding:8px; }
+  .kpi b { display:block; font-size:18px; }
+  .kpi span { font-size:12px; color:var(--muted); }
+  ul { padding-left:18px; margin:6px 0 12px; }
+  li { margin:3px 0; }
+  .up li::marker { color:var(--high); } .down li::marker { color:var(--low); }
+  h3 { font-size:14px; margin:12px 0 0; }
+  .note { font-size:12px; color:var(--muted); }
+  .err { color:var(--high); white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Warranty claim review</h1>
+  <p class="sub">Score one claim before payout. The desk can review 40 claims a month, so it only gets the ones where reviewing is worth more than it costs.</p>
+  <div class="grid">
+    <form class="card" id="f">
+      <div class="presets">
+        <button type="button" data-p="risky">Small uninspected claim</button>
+        <button type="button" data-p="big">Large claim, repeat customer</button>
+        <button type="button" data-p="clean">Routine claim</button>
+      </div>
+      <div class="row">
+        <div><label>Partner ID</label><input name="partner_id" required></div>
+        <div><label>SKU</label><input name="sku" required></div>
+      </div>
+      <label>Product serial (as typed)</label><input name="product_serial" required>
+      <div class="row">
+        <div><label>Claim amount (Rs)</label><input name="claim_amount_inr" type="number" step="1" min="1" required></div>
+        <div><label>Days since purchase</label><input name="days_since_purchase" type="number" min="0" required></div>
+      </div>
+      <div class="row">
+        <div><label>Photo attached</label><select name="photo_attached"><option>Y</option><option>N</option></select></div>
+        <div><label>Partner inspected</label><select name="partner_inspected"><option>Y</option><option>N</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>Customer's earlier claims</label><input name="customer_prior_claims" type="number" min="0" required></div>
+        <div><label>Submitted at (IST)</label><input name="submitted_at" placeholder="YYYY-MM-DD HH:MM (blank = now)"></div>
+      </div>
+      <button id="go" type="submit">Score claim</button>
+    </form>
+    <section class="card" id="out"><p class="note">Pick an example or fill in a claim, then press <b>Score claim</b>.</p></section>
+  </div>
+</main>
+<script>
+const PRESETS = {
+  risky: {partner_id:"SP3160", sku:"KH-AF-02", product_serial:"kh-128015513", claim_amount_inr:1995, days_since_purchase:150,
+          photo_attached:"N", partner_inspected:"N", customer_prior_claims:1, submitted_at:"2026-09-20 11:30"},
+  big:   {partner_id:"SP3207", sku:"KH-RV-03", product_serial:"KH222151083", claim_amount_inr:18500, days_since_purchase:40,
+          photo_attached:"Y", partner_inspected:"Y", customer_prior_claims:3, submitted_at:"2026-09-20 11:30"},
+  clean: {partner_id:"SP3265", sku:"KH-CF-01", product_serial:"KH835948289", claim_amount_inr:900, days_since_purchase:300,
+          photo_attached:"Y", partner_inspected:"Y", customer_prior_claims:0, submitted_at:"2026-09-20 11:30"},
+};
+const f = document.getElementById("f"), out = document.getElementById("out"), go = document.getElementById("go");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
+  for (const [k, v] of Object.entries(PRESETS[b.dataset.p])) f.elements[k].value = v;
+});
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(f));
+  for (const k of ["claim_amount_inr","days_since_purchase","customer_prior_claims"]) body[k] = Number(body[k]);
+  if (!body.submitted_at) delete body.submitted_at;
+  go.disabled = true; out.innerHTML = '<p class="note">Scoring...</p>';
+  try {
+    const r = await fetch("/score", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail, null, 1));
+    const cls = d.recommendation.startsWith("SEND") ? "v-desk" : d.recommendation.includes("FLAG") ? "v-flag" : "v-pay";
+    const li = xs => xs.length ? xs.map(x => `<li>${esc(x.text)}</li>`).join("") : "<li>None significant</li>";
+    out.innerHTML = `
+      <div class="verdict ${cls}">${esc(d.recommendation)}</div>
+      <div class="note">${esc(d.recommendation_reason)}</div>
+      <div class="kpis">
+        <div class="kpi"><b>${(100*d.fraud_probability).toFixed(1)}%</b><span>fraud risk (${esc(d.risk_band)}; typical claim ${(100*d.base_rate).toFixed(1)}%)</span></div>
+        <div class="kpi"><b>Rs ${d.claim_amount_inr.toLocaleString("en-IN")}</b><span>claim amount</span></div>
+        <div class="kpi"><b>Rs ${d.expected_saving_if_reviewed_inr.toLocaleString("en-IN")}</b><span>expected saving if reviewed</span></div>
+      </div>
+      <h3>Why it looks risky</h3><ul class="up">${li(d.reasons_risk_up)}</ul>
+      <h3>What counts in its favour</h3><ul class="down">${li(d.reasons_risk_down)}</ul>
+      <p class="note">${esc(d.history_note)}. Risk is a model estimate from 15 months of investigated claims; it is a prompt for review, not a finding of fraud.</p>`;
+  } catch (err) {
+    out.innerHTML = `<p class="err">Could not score this claim:\n${esc(err.message)}</p>`;
+  } finally { go.disabled = false; }
+};
+</script>
+</body>
+</html>
