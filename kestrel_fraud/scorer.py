@@ -1,15 +1,14 @@
 """Score one claim against the claims history - the same feature code as training."""
-import json
 import logging
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
 from . import explain, metrics
-from .config import ARTIFACT_DIR, DATA_DIR
+from .config import DATA_DIR
 from .data import clean_claims, load_claims, load_reference, normalise_serial
-from .features import FEATURES, build_features
+from .features import build_features
+from .registry import DEFAULT, Registry
 
 log = logging.getLogger(__name__)
 
@@ -21,9 +20,10 @@ REQUIRED = ["partner_id", "sku", "product_serial", "days_since_purchase", "claim
 
 
 class ClaimScorer:
-    def __init__(self, artifact_dir=ARTIFACT_DIR, data_dir=DATA_DIR):
-        self.booster = lgb.Booster(model_file=str(artifact_dir / "model.txt"))
-        self.meta = json.loads((artifact_dir / "meta.json").read_text())
+    def __init__(self, data_dir=DATA_DIR):
+        self.registry = Registry()
+        self.registry.get(DEFAULT)          # fail at startup, not on first request, if the model is missing
+        self.meta = self.registry.meta(DEFAULT)
         self.partners, self.products = load_reference(data_dir)
         try:
             train, test = load_claims(data_dir)
@@ -44,8 +44,10 @@ class ClaimScorer:
         if rec["sku"] not in set(self.products["sku"]):
             raise ValueError(f"unknown sku {rec['sku']!r} (not in products.csv)")
 
-    def score(self, rec):
+    def score(self, rec, model_name=DEFAULT):
         self.validate(rec)
+        booster, meta = self.registry.get(model_name or DEFAULT)
+        features = meta["features"]
         defaults = {"claim_id": "LIVE-REQUEST", "submitted_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
                     "claim_description": "", "source": "crm"}
         rec = {**rec, **{k: v for k, v in defaults.items() if rec.get(k) in (None, "")}}
@@ -67,11 +69,11 @@ class ClaimScorer:
         feats = build_features(claims, self.partners, self.products)
         row = feats[feats["claim_id"] == rec["claim_id"]].iloc[[0]]
 
-        contrib = self.booster.predict(row[FEATURES], pred_contrib=True)[0]
-        p = float(self.booster.predict(row[FEATURES])[0])
+        contrib = booster.predict(row[features], pred_contrib=True)[0]
+        p = float(booster.predict(row[features])[0])
         amount = float(row["claim_amount_inr"].iloc[0])
         ev = float(metrics.expected_value(p, amount))
-        up, down = explain.reasons(row.iloc[0], contrib[:-1], FEATURES)
+        up, down = explain.reasons(row.iloc[0], contrib[:-1], features)
 
         if ev > 0:
             action = "SEND TO INVESTIGATION DESK"
@@ -84,9 +86,10 @@ class ClaimScorer:
             action = "PAY"
             why = "Risk is low relative to the cost of holding a genuine customer."
         return {
+            "model": model_name or DEFAULT,
             "fraud_probability": round(p, 4),
             "risk_band": "high" if p >= FLAG_PROBABILITY else "medium" if p >= 0.04 else "low",
-            "base_rate": round(self.meta["base_rate"], 4),
+            "base_rate": round(meta["base_rate"], 4),
             "claim_amount_inr": amount,
             "expected_saving_if_reviewed_inr": round(ev),
             "recommendation": action,

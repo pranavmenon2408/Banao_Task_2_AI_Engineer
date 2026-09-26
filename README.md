@@ -36,6 +36,13 @@ streamlit run ui/streamlit_app.py          # 2. the screen -> http://localhost:8
 - A fallback single-page screen is also served by the API itself at http://localhost:8000.
 - API: `POST /score` with one claim as JSON. Interactive docs are at http://localhost:8000/docs.
 - `GET /health` reports whether the model and the claims history loaded.
+- `GET /models` lists the models available for scoring. `default` is the shipped model.
+- `POST /train` trains a named model on a subset of the history as a background job:
+  - The subset can be a date range, source system, partner type or product family.
+  - `GET /train/{job_id}` polls the job. It returns progress plus train and hold-out log-loss and average precision at every 10% of boosting rounds.
+  - The last month of the range is held out for these metrics. The model is then optionally refitted on the whole range.
+  - Trained models are saved in `artifacts/models/<name>/`, which is gitignored. Pick one in the screen, or pass `"model": "<name>"` to `/score`.
+  - Jobs are kept in memory, so restarting the server forgets them; saved models stay.
 
 ```bash
 curl -X POST localhost:8000/score -H "Content-Type: application/json" -d '{"partner_id":"SP3160","sku":"KH-AF-02","product_serial":"kh-128015513","claim_amount_inr":1995,"days_since_purchase":150,"photo_attached":"N","partner_inspected":"N","customer_prior_claims":1,"submitted_at":"2026-09-20 11:30"}'
