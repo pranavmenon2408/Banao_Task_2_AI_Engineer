@@ -39,15 +39,20 @@ streamlit run ui/streamlit_app.py          # 2. the screen -> http://localhost:8
 ```
 
 - **Screen (Streamlit)** has three tabs:
-  - **Score a claim:** calls the API.
+  - **Score a claim:** calls the API, with a choice of model.
   - **Jul-Sep predictions:** the scored test set, the desk worklist and the partner watchlist.
+  - **Train a model:** use the Kestrel history or upload a CSV, which is checked with fix-and-re-upload feedback. Progress shows every 10%.
   - **How well it works:** walk-forward results, a calibration check and the model comparison.
   - If the screen runs on another host or port from the API, set `KESTREL_API_URL`.
 - A fallback single-page screen is also served by the API itself at http://localhost:8000.
 - API: `POST /score` with one claim as JSON. Interactive docs are at http://localhost:8000/docs.
 - `GET /health` reports whether the model and the claims history loaded.
 - `GET /models` lists the models available for scoring. `default` is the shipped model.
-- `POST /train` trains a named model on a subset of the history as a background job:
+- `POST /datasets` uploads your own claims CSV for training. It must have the same columns as `train.csv`; `GET /datasets/template` downloads an example.
+  - Every problem is reported at once, with CSV line numbers and how to fix it: missing columns, bad dates or numbers, Y/N fields, labels other than 1/0/blank, unknown partners or SKUs.
+  - Fix the file and re-upload. A file that passes returns a `dataset_id`.
+- `POST /train` trains a named model as a background job:
+  - It uses the Kestrel history, an uploaded dataset (`dataset_id`), or both (`combine_with_history`).
   - The subset can be a date range, source system, partner type or product family.
   - `GET /train/{job_id}` polls the job. It returns progress plus train and hold-out log-loss and average precision at every 10% of boosting rounds.
   - The last month of the range is held out for these metrics. The model is then optionally refitted on the whole range.

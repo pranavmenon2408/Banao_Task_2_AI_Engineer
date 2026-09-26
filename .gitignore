@@ -19,3 +19,6 @@ artifacts/models/
 
 # filled-in submission form: private, not for the repo
 submission.md
+
+# user uploads (client-shaped data)
+artifacts/uploads/

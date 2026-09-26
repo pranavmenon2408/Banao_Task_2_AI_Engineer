@@ -5,7 +5,6 @@ curve shows whether the model generalises forward in time rather than how well i
 Optionally the model is then refitted on the whole range (the saved model is that refit).
 """
 import threading
-import time
 import traceback
 import uuid
 from datetime import datetime
@@ -16,16 +15,19 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from . import model as mdl
-from .config import LGBM_PARAMS
+from .config import ARTIFACT_DIR, LGBM_PARAMS
+from .data import clean_claims
 from .features import FEATURES, build_features
 from .registry import validate_name
 
 MIN_TRAIN_FRAUDS = 15
+UPLOAD_DIR = ARTIFACT_DIR / "uploads"
 
 
 class TrainRequest(dict):
     """Plain dict with defaults; validated in start()."""
-    DEFAULTS = dict(date_from="2025-04-01", date_to="2026-06-30", sources=["crm", "legacy_zoho"],
+    DEFAULTS = dict(date_from=None, date_to=None, dataset_id=None, combine_with_history=True,
+                    sources=["crm", "legacy_zoho"],
                     partner_types=["authorised_service_centre", "franchise", "freelance_technician"],
                     families=None, n_estimators=LGBM_PARAMS["n_estimators"], learning_rate=LGBM_PARAMS["learning_rate"],
                     num_leaves=LGBM_PARAMS["num_leaves"], monotone=True, zoho_negative_weight=0.8, refit_full=True)
@@ -34,17 +36,44 @@ class TrainRequest(dict):
 class JobManager:
     def __init__(self, scorer, registry):
         self.scorer, self.registry = scorer, registry
-        self.jobs, self._lock = {}, threading.Lock()
+        self.jobs, self.datasets, self._lock = {}, {}, threading.Lock()
+
+    def add_dataset(self, df, filename, summary):
+        """Keep a validated upload (and a copy on disk for traceability); returns its id."""
+        dataset_id = uuid.uuid4().hex[:10]
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_csv(UPLOAD_DIR / f"{dataset_id}.csv", index=False)
+        with self._lock:
+            self.datasets[dataset_id] = {"df": df, "filename": filename, "summary": summary}
+        return dataset_id
+
+    def _claims_for(self, req):
+        """History, the upload, or both. Uploaded rows replace history rows with the same claim_id."""
+        parts = []
+        if req["dataset_id"]:
+            with self._lock:
+                ds = self.datasets.get(req["dataset_id"])
+            if ds is None:
+                raise ValueError(f"no uploaded dataset {req['dataset_id']!r} - upload the CSV again")
+            up = clean_claims(ds["df"])
+            if req["combine_with_history"] and self.scorer.history is not None:
+                parts.append(self.scorer.history[~self.scorer.history["claim_id"].isin(up["claim_id"])])
+            parts.append(up)
+        else:
+            parts.append(self.scorer.history)
+        return pd.concat(parts, ignore_index=True)
 
     def start(self, name, **kwargs):
         validate_name(name)
         req = {**TrainRequest.DEFAULTS, **{k: v for k, v in kwargs.items() if v is not None}}
-        if pd.Timestamp(req["date_from"]) >= pd.Timestamp(req["date_to"]):
+        if req["date_from"] and req["date_to"] and pd.Timestamp(req["date_from"]) >= pd.Timestamp(req["date_to"]):
             raise ValueError("date_from must be before date_to")
         if not 10 <= int(req["n_estimators"]) <= 3000:
             raise ValueError("n_estimators must be between 10 and 3000")
-        if self.scorer.history is None:
-            raise ValueError("claims history not loaded - put the data pack in data/")
+        if req["dataset_id"] and req["dataset_id"] not in self.datasets:
+            raise ValueError(f"no uploaded dataset {req['dataset_id']!r} - upload the CSV again")
+        if self.scorer.history is None and not req["dataset_id"]:
+            raise ValueError("claims history not loaded - put the data pack in data/ or upload a CSV")
         job_id = uuid.uuid4().hex[:10]
         job = {"job_id": job_id, "name": name, "request": req, "status": "queued", "stage": "",
                "progress_pct": 0, "history": [], "error": None, "started": datetime.now().isoformat(timespec="seconds")}
@@ -68,8 +97,7 @@ class JobManager:
         except Exception as e:  # report, never crash the server
             self._update(job, status="failed", error=f"{type(e).__name__}: {e}", trace=traceback.format_exc(limit=3))
 
-    def _subset(self, feats, req):
-        start, end = pd.Timestamp(req["date_from"]), pd.Timestamp(req["date_to"]) + pd.Timedelta(days=1)
+    def _subset(self, feats, req, start, end):
         m = (feats["ts"] >= start) & (feats["ts"] < end) & feats["is_fraud"].notna()
         m &= feats["source"].isin(req["sources"]) & feats["partner_type"].isin(req["partner_types"])
         if req.get("families"):
@@ -79,9 +107,15 @@ class JobManager:
     def _train(self, job):
         req = job["request"]
         self._update(job, status="running", stage="building time-safe features")
-        end = pd.Timestamp(req["date_to"]) + pd.Timedelta(days=1)
-        feats = build_features(self.scorer.history, self.scorer.partners, self.scorer.products, label_cutoff=end)
-        data, end = self._subset(feats, req)
+        claims = self._claims_for(req)
+        labelled_ts = claims.loc[claims["is_fraud"].notna(), "ts"]
+        if labelled_ts.empty:
+            raise ValueError("no labelled claims to train on")
+        # blank dates mean "the whole span of the chosen data"
+        start = pd.Timestamp(req["date_from"]) if req["date_from"] else labelled_ts.min().normalize()
+        end = (pd.Timestamp(req["date_to"]) if req["date_to"] else labelled_ts.max().normalize()) + pd.Timedelta(days=1)
+        feats = build_features(claims, self.scorer.partners, self.scorer.products, label_cutoff=end)
+        data, end = self._subset(feats, req, start, end)
         if data.empty:
             raise ValueError("no labelled claims match this subset")
         valid_start = (end - pd.Timedelta(days=1)).to_period("M").start_time
@@ -141,8 +175,12 @@ class JobManager:
 
         meta = {"features": FEATURES, "params": {k: v for k, v in params.items() if k != "monotone_constraints"},
                 "monotone": bool(req["monotone"]), "created": datetime.now().isoformat(timespec="seconds"),
-                "subset": {k: req[k] for k in ["date_from", "date_to", "sources", "partner_types", "families",
-                                               "zoho_negative_weight", "refit_full"]},
+                "subset": {**{k: req[k] for k in ["sources", "partner_types", "families", "zoho_negative_weight",
+                                                  "refit_full", "combine_with_history"]},
+                           "date_from": str(start.date()), "date_to": str((end - pd.Timedelta(days=1)).date()),
+                           "data": (f"uploaded {self.datasets[req['dataset_id']]['filename']}"
+                                    + (" + Kestrel history" if req["combine_with_history"] else " only"))
+                                   if req["dataset_id"] else "Kestrel history"},
                 "trained_on": {"claims": len(trained), "frauds": int(trained["is_fraud"].sum()),
                                "from": str(trained["ts"].min()), "to": str(trained["ts"].max())},
                 "base_rate": float(trained["is_fraud"].mean()), "validation": validation,

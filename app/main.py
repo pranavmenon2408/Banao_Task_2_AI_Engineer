@@ -2,7 +2,9 @@
 
 POST   /score              one claim as JSON -> fraud probability, recommendation, reasons
 GET    /models             available models ('default' is the shipped one)
-POST   /train              train a named model on a subset of the history (background job)
+POST   /datasets           upload a claims CSV for training; returns every problem to fix, or a dataset_id
+GET    /datasets/template  a two-row CSV in the expected shape
+POST   /train              train a named model on the history and/or an upload (background job)
 GET    /train/{job_id}     poll a training job: status, % done, metrics every 10% of boosting rounds
 DELETE /models/{name}      remove a user-trained model
 GET    /health             model + history status
@@ -12,11 +14,12 @@ import logging
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from kestrel_fraud import dataset  # noqa: E402
 from kestrel_fraud.registry import DEFAULT  # noqa: E402
 from kestrel_fraud.scorer import ClaimScorer  # noqa: E402
 from kestrel_fraud.training_jobs import JobManager  # noqa: E402
@@ -24,6 +27,7 @@ from kestrel_fraud.training_jobs import JobManager  # noqa: E402
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Kestrel warranty claim review")
 STATIC = Path(__file__).parent / "static"
+MAX_UPLOAD_MB = 50
 
 try:
     scorer = ClaimScorer()
@@ -57,8 +61,10 @@ class Claim(BaseModel):
 
 class TrainBody(BaseModel):
     name: str = Field(examples=["crm_only_2026"], description="letters, digits, _ or -; 'default' is reserved")
-    date_from: str = Field("2025-04-01", description="first claim date in the training subset")
-    date_to: str = Field("2026-06-30", description="last claim date; its month is held out to measure progress")
+    dataset_id: str | None = Field(None, description="an upload from POST /datasets; omit to use the Kestrel history")
+    combine_with_history: bool = Field(True, description="with an upload: also train on the Kestrel history")
+    date_from: str | None = Field(None, description="first claim date in the training subset (blank = earliest)")
+    date_to: str | None = Field(None, description="last claim date; its month is held out (blank = latest)")
     sources: list[str] = ["crm", "legacy_zoho"]
     partner_types: list[str] = ["authorised_service_centre", "franchise", "freelance_technician"]
     families: list[str] | None = None
@@ -105,6 +111,27 @@ def delete_model(name: str):
     except ValueError as e:
         raise HTTPException(422, str(e))
     return {"deleted": name}
+
+
+@app.get("/datasets/template", response_class=PlainTextResponse)
+def dataset_template():
+    return PlainTextResponse(dataset.template_csv(), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=claims_template.csv"})
+
+
+@app.post("/datasets")
+async def upload_dataset(file: UploadFile = File(...)):
+    """Validate an uploaded claims CSV. 422 lists every problem so the file can be fixed in one pass."""
+    need_scorer()
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(413, f"file is larger than {MAX_UPLOAD_MB} MB")
+    df, report = dataset.validate(raw, scorer.partners, scorer.products)
+    if not report["ok"]:
+        raise HTTPException(422, {"message": "the file does not match the expected shape - fix these and re-upload",
+                                  "required_columns": dataset.REQUIRED, "optional_columns": list(dataset.OPTIONAL),
+                                  **report})
+    return {"dataset_id": jobs.add_dataset(df, file.filename, report["summary"]), "filename": file.filename, **report}
 
 
 @app.post("/train", status_code=202)

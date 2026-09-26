@@ -186,15 +186,68 @@ with tab_preds:
 
 # --------------------------------------------------------------------------- train
 with tab_train:
-    st.markdown("Train a model on a **subset** of the labelled history, name it, then pick it in *Score a claim*. "
+    st.markdown("Train a model on the Kestrel history or on **your own CSV**, name it, then pick it in *Score a claim*. "
                 "The last month of the date range is **held out**: progress is measured on it, so the curve shows "
                 "whether the model generalises forward in time rather than how well it memorises.")
+
+    source_choice = st.radio("Training data", ["Kestrel history (data pack)", "Upload a CSV"], horizontal=True)
+    dataset_id, combine, lo, hi = None, True, pd.Timestamp("2025-04-01").date(), pd.Timestamp("2026-06-30").date()
+    if source_choice == "Upload a CSV":
+        c1, c2 = st.columns([3, 1])
+        try:
+            template = requests.get(f"{API_URL}/datasets/template", timeout=5).text
+        except requests.RequestException:
+            template = None
+        if template:
+            c2.download_button("Download template CSV", template, "claims_template.csv", "text/csv")
+        c1.caption("Same columns as the data pack's train.csv. Required: claim_id, submitted_at, partner_id, sku, "
+                   "product_serial, days_since_purchase, claim_amount_inr, photo_attached (Y/N), partner_inspected (Y/N), "
+                   "customer_prior_claims, is_fraud (1/0/blank). Optional: claim_description, inspector_note, source.")
+        up = st.file_uploader("Claims CSV", type=["csv"])
+        if up is not None:
+            key = (up.name, up.size)
+            if st.session_state.get("upload_key") != key:      # validate each new file once
+                try:
+                    r = requests.post(f"{API_URL}/datasets", files={"file": (up.name, up.getvalue(), "text/csv")}, timeout=120)
+                    st.session_state.upload = (r.status_code, r.json())
+                except requests.RequestException as e:
+                    st.session_state.upload = (0, {"detail": f"could not reach the API at {API_URL}: {e}"})
+                st.session_state.upload_key = key
+            status, res = st.session_state.upload
+            if status == 200:
+                s = res["summary"]
+                st.success(f"**{res['filename']}** accepted: {s['rows']:,} rows, {s['labelled']:,} labelled, "
+                           f"{s['frauds']} fraud, {s['from'][:10]} to {s['to'][:10]} ({s['months']} months).")
+                for w in res["warnings"]:
+                    st.warning(f"{w['problem']}" + (f" (e.g. lines {w['example_lines']})" if w.get("example_lines") else "")
+                               + (f" - {w['fix']}" if w.get("fix") else ""))
+                dataset_id = res["dataset_id"]
+                lo, hi = pd.Timestamp(s["from"]).date(), pd.Timestamp(s["to"]).date()
+                combine = st.checkbox("Combine with the Kestrel history", True,
+                                      help="uploaded claims replace history rows with the same claim_id; "
+                                           "untick to train on the upload alone")
+                if combine:
+                    lo = min(lo, pd.Timestamp("2025-04-01").date())
+                    hi = max(hi, pd.Timestamp("2026-06-30").date())
+            else:
+                d = res.get("detail", res)
+                if isinstance(d, dict):
+                    st.error(f"**{d.get('message', 'The file cannot be used - fix these and re-upload')}.**")
+                    st.dataframe(pd.DataFrame([{"problem": e.get("problem"),
+                                                "where": ", ".join(e.get("columns", [])) or
+                                                         (f"{e['count']} rows, e.g. lines {e['example_lines']}" if e.get("count") else ""),
+                                                "how to fix": e.get("fix", "")} for e in d.get("errors", [])]),
+                                 width="stretch", hide_index=True)
+                else:
+                    st.error(f"Upload failed: {d}")
+        else:
+            st.info("Upload a CSV to continue, or switch back to the Kestrel history.")
+
     with st.form("train"):
         name = st.text_input("Model name", placeholder="e.g. crm_only_2026 (letters, digits, _ or -)")
         c1, c2 = st.columns(2)
-        lo, hi = pd.Timestamp("2025-04-01").date(), pd.Timestamp("2026-06-30").date()
-        d_from = c1.date_input("Claims from", lo, min_value=lo, max_value=hi)
-        d_to = c2.date_input("Claims to (its month is the hold-out)", hi, min_value=lo, max_value=hi)
+        d_from = c1.date_input("Claims from", lo, min_value=lo, max_value=hi, key=f"from_{dataset_id}_{combine}")
+        d_to = c2.date_input("Claims to (its month is the hold-out)", hi, min_value=lo, max_value=hi, key=f"to_{dataset_id}_{combine}")
         c1, c2 = st.columns(2)
         sources = c1.multiselect("Source systems", ["crm", "legacy_zoho"], ["crm", "legacy_zoho"])
         ptypes = c2.multiselect("Partner types", ["authorised_service_centre", "franchise", "freelance_technician"],
@@ -213,8 +266,12 @@ with tab_train:
             refit = c3.checkbox("Refit on the full range after measuring", True)
         start = st.form_submit_button("Start training", type="primary")
 
+    if start and source_choice == "Upload a CSV" and dataset_id is None:
+        st.error("Upload a CSV that passes the checks first (or switch back to the Kestrel history).")
+        start = False
     if start:
-        body = dict(name=name.strip(), date_from=str(d_from), date_to=str(d_to), sources=sources, partner_types=ptypes,
+        body = dict(name=name.strip(), dataset_id=dataset_id, combine_with_history=combine,
+                    date_from=str(d_from), date_to=str(d_to), sources=sources, partner_types=ptypes,
                     families=families or None, n_estimators=int(n_est), learning_rate=float(lr), num_leaves=int(leaves),
                     monotone=mono, zoho_negative_weight=float(zw), refit_full=refit)
         try:
@@ -250,7 +307,9 @@ with tab_train:
     saved = api_models()
     if saved:
         st.markdown("**Saved models**")
-        st.dataframe(pd.DataFrame([{"name": m["name"], "claims": (m.get("trained_on") or {}).get("claims"),
+        st.dataframe(pd.DataFrame([{"name": m["name"],
+                                    "data": (m["subset"].get("data") if isinstance(m.get("subset"), dict) else "Kestrel history"),
+                                    "claims": (m.get("trained_on") or {}).get("claims"),
                                     "frauds": (m.get("trained_on") or {}).get("frauds"),
                                     "hold-out PR-AUC": (m.get("validation") or {}).get("pr_auc"),
                                     "created": m.get("created")} for m in saved]), width="stretch", hide_index=True)
