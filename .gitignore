@@ -16,3 +16,6 @@ __pycache__/
 
 # user-trained models (built from client data at runtime)
 artifacts/models/
+
+# filled-in submission form: private, not for the repo
+submission.md
