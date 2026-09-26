@@ -1,4 +1,5 @@
 """Named models: the shipped default in artifacts/, user-trained ones in artifacts/models/<name>/."""
+
 import json
 import re
 import shutil
@@ -30,7 +31,7 @@ class Registry:
 
     def names(self):
         user = sorted(p.name for p in USER_DIR.glob("*") if (p / "model.txt").exists()) if USER_DIR.exists() else []
-        return [DEFAULT] + user
+        return [DEFAULT, *user]
 
     def meta(self, name):
         return json.loads((model_dir(name) / "meta.json").read_text())
@@ -39,8 +40,15 @@ class Registry:
         out = []
         for n in self.names():
             m = self.meta(n)
-            out.append({"name": n, "trained_on": m.get("trained_on"), "subset": m.get("subset", "all labelled claims"),
-                        "validation": m.get("validation"), "created": m.get("created")})
+            out.append(
+                {
+                    "name": n,
+                    "trained_on": m.get("trained_on"),
+                    "subset": m.get("subset", "all labelled claims"),
+                    "validation": m.get("validation"),
+                    "created": m.get("created"),
+                }
+            )
         return out
 
     def get(self, name):

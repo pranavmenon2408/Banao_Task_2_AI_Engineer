@@ -10,6 +10,7 @@ DELETE /models/{name}      remove a user-trained model
 GET    /health             model + history status
 GET    /                   fallback single-page screen (the main screen is Streamlit, see README)
 """
+
 import logging
 import sys
 from pathlib import Path
@@ -19,28 +20,37 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from kestrel_fraud import dataset  # noqa: E402
-from kestrel_fraud.registry import DEFAULT  # noqa: E402
-from kestrel_fraud.scorer import ClaimScorer  # noqa: E402
-from kestrel_fraud.training_jobs import JobManager  # noqa: E402
+from kestrel_fraud import dataset
+from kestrel_fraud.registry import DEFAULT
+from kestrel_fraud.scorer import ClaimScorer
+from kestrel_fraud.training_jobs import JobManager
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Kestrel warranty claim review")
 STATIC = Path(__file__).parent / "static"
 MAX_UPLOAD_MB = 50
 
+_scorer: ClaimScorer | None = None
+_jobs: JobManager | None = None
+startup_error: str | None = None
 try:
-    scorer = ClaimScorer()
-    jobs = JobManager(scorer, scorer.registry)
-    startup_error = None
+    _scorer = ClaimScorer()
+    _jobs = JobManager(_scorer, _scorer.registry)
 except Exception as e:  # keep the server up and explain what is missing
-    scorer, jobs, startup_error = None, None, f"{type(e).__name__}: {e}"
+    startup_error = f"{type(e).__name__}: {e}"
     logging.exception("scorer failed to load")
 
 
-def need_scorer():
-    if scorer is None:
+def need_scorer() -> ClaimScorer:
+    if _scorer is None:
         raise HTTPException(503, f"Model not loaded ({startup_error}). Run `python scripts/train.py` first - see README.")
+    return _scorer
+
+
+def need_jobs() -> JobManager:
+    need_scorer()
+    assert _jobs is not None  # created together with the scorer
+    return _jobs
 
 
 class Claim(BaseModel):
@@ -78,76 +88,90 @@ class TrainBody(BaseModel):
 
 @app.get("/health")
 def health():
-    if scorer is None:
-        return {"ok": False, "error": startup_error,
-                "fix": "Run `python scripts/train.py` with the data pack in data/ (see README)."}
-    return {"ok": True, "model": scorer.meta["trained_on"], "history": scorer.history_note,
-            "models": scorer.registry.names()}
+    if _scorer is None:
+        return {
+            "ok": False,
+            "error": startup_error,
+            "fix": "Run `python scripts/train.py` with the data pack in data/ (see README).",
+        }
+    return {
+        "ok": True,
+        "model": _scorer.meta["trained_on"],
+        "history": _scorer.history_note,
+        "models": _scorer.registry.names(),
+    }
 
 
 @app.post("/score")
 def score(claim: Claim):
-    need_scorer()
+    scorer = need_scorer()
     body = claim.model_dump()
     try:
         return scorer.score(body, model_name=body.pop("model"))
     except KeyError as e:
-        raise HTTPException(404, str(e).strip("'\""))
+        raise HTTPException(404, str(e).strip("'\"")) from e
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
 
 
 @app.get("/models")
 def models():
-    need_scorer()
-    return scorer.registry.list()
+    return need_scorer().registry.list()
 
 
 @app.delete("/models/{name}")
 def delete_model(name: str):
-    need_scorer()
+    scorer = need_scorer()
     try:
         scorer.registry.delete(name)
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
     return {"deleted": name}
 
 
 @app.get("/datasets/template", response_class=PlainTextResponse)
 def dataset_template():
-    return PlainTextResponse(dataset.template_csv(), media_type="text/csv",
-                             headers={"Content-Disposition": "attachment; filename=claims_template.csv"})
+    return PlainTextResponse(
+        dataset.template_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=claims_template.csv"},
+    )
 
 
 @app.post("/datasets")
 async def upload_dataset(file: UploadFile = File(...)):
     """Validate an uploaded claims CSV. 422 lists every problem so the file can be fixed in one pass."""
-    need_scorer()
+    scorer, jobs = need_scorer(), need_jobs()
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(413, f"file is larger than {MAX_UPLOAD_MB} MB")
     df, report = dataset.validate(raw, scorer.partners, scorer.products)
     if not report["ok"]:
-        raise HTTPException(422, {"message": "the file does not match the expected shape - fix these and re-upload",
-                                  "required_columns": dataset.REQUIRED, "optional_columns": list(dataset.OPTIONAL),
-                                  **report})
+        raise HTTPException(
+            422,
+            {
+                "message": "the file does not match the expected shape - fix these and re-upload",
+                "required_columns": dataset.REQUIRED,
+                "optional_columns": list(dataset.OPTIONAL),
+                **report,
+            },
+        )
     return {"dataset_id": jobs.add_dataset(df, file.filename, report["summary"]), "filename": file.filename, **report}
 
 
 @app.post("/train", status_code=202)
 def train(body: TrainBody):
-    need_scorer()
+    jobs = need_jobs()
     try:
         job_id = jobs.start(**body.model_dump())
     except ValueError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(422, str(e)) from e
     return {"job_id": job_id, "poll": f"/train/{job_id}"}
 
 
 @app.get("/train/{job_id}")
 def train_status(job_id: str):
-    need_scorer()
-    job = jobs.get(job_id)
+    job = need_jobs().get(job_id)
     if job is None:
         raise HTTPException(404, f"no training job {job_id!r} (jobs are kept in memory until the server restarts)")
     return job

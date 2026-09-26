@@ -1,4 +1,5 @@
 """Score one claim against the claims history - the same feature code as training."""
+
 import logging
 
 import numpy as np
@@ -15,14 +16,22 @@ log = logging.getLogger(__name__)
 # ~8x the base fraud rate: worth acting on at partner level even when a desk review is not
 FLAG_PROBABILITY = 0.10
 
-REQUIRED = ["partner_id", "sku", "product_serial", "days_since_purchase", "claim_amount_inr",
-            "photo_attached", "partner_inspected", "customer_prior_claims"]
+REQUIRED = [
+    "partner_id",
+    "sku",
+    "product_serial",
+    "days_since_purchase",
+    "claim_amount_inr",
+    "photo_attached",
+    "partner_inspected",
+    "customer_prior_claims",
+]
 
 
 class ClaimScorer:
     def __init__(self, data_dir=DATA_DIR):
         self.registry = Registry()
-        self.registry.get(DEFAULT)          # fail at startup, not on first request, if the model is missing
+        self.registry.get(DEFAULT)  # fail at startup, not on first request, if the model is missing
         self.meta = self.registry.meta(DEFAULT)
         self.partners, self.products = load_reference(data_dir)
         try:
@@ -48,8 +57,12 @@ class ClaimScorer:
         self.validate(rec)
         booster, meta = self.registry.get(model_name or DEFAULT)
         features = meta["features"]
-        defaults = {"claim_id": "LIVE-REQUEST", "submitted_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
-                    "claim_description": "", "source": "crm"}
+        defaults = {
+            "claim_id": "LIVE-REQUEST",
+            "submitted_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+            "claim_description": "",
+            "source": "crm",
+        }
         rec = {**rec, **{k: v for k, v in defaults.items() if rec.get(k) in (None, "")}}
         rec.setdefault("inspector_note", None)
         new = clean_claims(pd.DataFrame([rec]))
@@ -77,11 +90,16 @@ class ClaimScorer:
 
         if ev > 0:
             action = "SEND TO INVESTIGATION DESK"
-            why = f"Expected saving from reviewing is Rs {ev:,.0f} (fraud risk x amount, minus Rs 640 review and goodwill cost)."
+            why = (
+                f"Expected saving from reviewing is Rs {ev:,.0f} "
+                "(fraud risk x amount, minus Rs 640 review and goodwill cost)."
+            )
         elif p >= FLAG_PROBABILITY:
             action = "PAY, BUT FLAG PARTNER FOR INSPECTION"
-            why = ("Risk is high but the amount is too small for a desk review to pay for itself; "
-                   "the fix is to require inspection for this partner's claims.")
+            why = (
+                "Risk is high but the amount is too small for a desk review to pay for itself; "
+                "the fix is to require inspection for this partner's claims."
+            )
         else:
             action = "PAY"
             why = "Risk is low relative to the cost of holding a genuine customer."

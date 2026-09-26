@@ -1,4 +1,5 @@
 """LightGBM fraud model: training and scoring on the shared feature frame."""
+
 import lightgbm as lgb
 import numpy as np
 
@@ -16,14 +17,18 @@ def sample_weights(df, post_policy_weight=POST_POLICY_WEIGHT):
 
 
 def monotone(features):
-    return {"monotone_constraints": [1 if f in MONOTONE_UP else 0 for f in features],
-            "monotone_constraints_method": "advanced"}
+    return {
+        "monotone_constraints": [1 if f in MONOTONE_UP else 0 for f in features],
+        "monotone_constraints_method": "advanced",
+    }
 
 
 def fit(train_df, params=None, post_policy_weight=POST_POLICY_WEIGHT, features=FEATURES, constrained=True):
     train_df = train_df[train_df["is_fraud"].notna()]
     model = lgb.LGBMClassifier(**{**LGBM_PARAMS, **(monotone(features) if constrained else {}), **(params or {})})
-    model.fit(train_df[features], train_df["is_fraud"].astype(int), sample_weight=sample_weights(train_df, post_policy_weight))
+    model.fit(
+        train_df[features], train_df["is_fraud"].astype(int), sample_weight=sample_weights(train_df, post_policy_weight)
+    )
     return model
 
 

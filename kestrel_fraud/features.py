@@ -6,28 +6,49 @@ LABEL_LAG_DAYS and before `label_cutoff`). Raw partner_id and city are deliberat
 model inputs: partners are described by their behaviour so the model works for outlets it
 has never seen.
 """
+
 import numpy as np
 import pandas as pd
 
-from .config import (AUTO_APPROVE_LIMIT, LABEL_LAG_DAYS, METRO_CITIES, NEAR_LIMIT_BAND,
-                     POLICY_CHANGE)
+from .config import AUTO_APPROVE_LIMIT, LABEL_LAG_DAYS, METRO_CITIES, NEAR_LIMIT_BAND, POLICY_CHANGE
 
 DAY = np.timedelta64(1, "D")
 
 CATEGORICAL = ["partner_type", "family"]
 FEATURES = [
     # the claim itself
-    "claim_amount_inr", "amount_to_list", "days_since_purchase", "warranty_used_frac",
-    "customer_prior_claims", "photo_attached", "partner_inspected", "inspector_note_missing",
-    "serial_messy", "auto_approved", "near_limit", "family",
+    "claim_amount_inr",
+    "amount_to_list",
+    "days_since_purchase",
+    "warranty_used_frac",
+    "customer_prior_claims",
+    "photo_attached",
+    "partner_inspected",
+    "inspector_note_missing",
+    "serial_messy",
+    "auto_approved",
+    "near_limit",
+    "family",
     # the unit
-    "serial_prior_claims", "serial_prior_other_partner",
+    "serial_prior_claims",
+    "serial_prior_other_partner",
     # the partner (behaviour, not identity)
-    "partner_type", "partner_metro", "partner_age_days",
-    "p_claims_30d", "p_claims_90d", "p_growth_30d_vs_180d",
-    "p_small_share_30d", "p_near_limit_share_30d", "p_uninspected_share_30d",
-    "p_mean_amount_to_list_90d", "p_serial_repeat_share_90d", "p_prior_claims_mean_90d",
-    "p_labelled_n", "p_fraud_n", "p_fraud_90d", "p_fraud_rate_smoothed",
+    "partner_type",
+    "partner_metro",
+    "partner_age_days",
+    "p_claims_30d",
+    "p_claims_90d",
+    "p_growth_30d_vs_180d",
+    "p_small_share_30d",
+    "p_near_limit_share_30d",
+    "p_uninspected_share_30d",
+    "p_mean_amount_to_list_90d",
+    "p_serial_repeat_share_90d",
+    "p_prior_claims_mean_90d",
+    "p_labelled_n",
+    "p_fraud_n",
+    "p_fraud_90d",
+    "p_fraud_rate_smoothed",
 ]
 
 
@@ -65,11 +86,27 @@ def _window_sum(times, values, t_end, days):
 
 
 def _partner_history(df, label_cutoff, prior_rate, label_lag_days, prior_weight=20.0):
-    out = {c: np.zeros(len(df)) for c in [
-        "p_claims_30d", "p_claims_90d", "p_claims_180d", "p_small_30d", "p_near_30d",
-        "p_uninsp_30d", "p_ratio_sum_90d", "p_serial_rep_90d", "p_prior_sum_90d",
-        "p_labelled_n", "p_fraud_n", "p_fraud_90d",
-        "p_small_180d", "p_near_180d", "p_uninsp_180d", "p_ratio_sum_180d"]}
+    out = {
+        c: np.zeros(len(df))
+        for c in [
+            "p_claims_30d",
+            "p_claims_90d",
+            "p_claims_180d",
+            "p_small_30d",
+            "p_near_30d",
+            "p_uninsp_30d",
+            "p_ratio_sum_90d",
+            "p_serial_rep_90d",
+            "p_prior_sum_90d",
+            "p_labelled_n",
+            "p_fraud_n",
+            "p_fraud_90d",
+            "p_small_180d",
+            "p_near_180d",
+            "p_uninsp_180d",
+            "p_ratio_sum_180d",
+        ]
+    }
     cutoff = np.datetime64(label_cutoff) if label_cutoff is not None else None
     for _, idx in df.groupby("partner_id").indices.items():
         g = df.iloc[idx]
@@ -150,8 +187,7 @@ def _market_and_city(df, label_cutoff, prior_rate, label_lag_days, prior_weight=
     return f
 
 
-def build_features(claims, partners, products, label_cutoff=None, prior_rate=0.013,
-                   label_lag_days=LABEL_LAG_DAYS):
+def build_features(claims, partners, products, label_cutoff=None, prior_rate=0.013, label_lag_days=LABEL_LAG_DAYS):
     """claims: every claim available as history AND to be scored (train + test, cleaned).
 
     label_cutoff: outcomes of claims submitted on/after this date are treated as unknown

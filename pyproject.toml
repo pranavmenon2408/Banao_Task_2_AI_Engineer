@@ -1,0 +1,39 @@
+[project]
+name = "kestrel-fraud"
+version = "0.1.0"
+description = "Warranty claim fraud scoring for Kestrel Home"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 125
+target-version = "py312"
+extend-exclude = [".venv", "data", "artifacts", "reports"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, bugbear, pyupgrade, simplify, naming, numpy/pandas idioms
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "N", "NPY", "PD", "RUF"]
+ignore = [
+    "PD011",   # flags any `.values`, including non-pandas objects; too noisy to be useful
+    "RUF001",  # the Rs/INR text is intentional
+]
+
+[tool.ruff.lint.per-file-ignores]
+# scripts and apps put the repo root on sys.path before importing the package
+"scripts/*" = ["E402"]
+"app/*" = ["E402", "B008"]   # B008: File(...) in a signature is the FastAPI idiom
+"ui/*" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["kestrel_fraud", "app", "ui", "scripts", "tests"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

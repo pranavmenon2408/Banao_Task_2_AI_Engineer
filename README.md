@@ -15,7 +15,7 @@ No paid API or model key is used anywhere.
 | Model-family comparison (LR, SVMs, forests vs LightGBM) | [`docs/model_comparison.md`](docs/model_comparison.md) |
 | Service: scoring API and Streamlit screen | `app/`, `ui/` (see *Run the service* below) |
 
-## Setup (clean machine, Python 3.11+)
+## Setup (clean machine, Python 3.12+)
 
 ```bash
 python -m venv .venv
@@ -95,3 +95,16 @@ python scripts/train.py      # final model -> artifacts/, predictions.csv, repor
 
 Partners are described by their behaviour (recent volume, share of small or uninspected claims, confirmed frauds),
 never by their ID. This lets the model score outlets it has never seen.
+
+## Development checks
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .            # lint
+ruff format --check .   # formatting
+mypy                    # type checks (config in pyproject.toml)
+pytest -q               # tests that need no client data
+```
+
+The same four checks run in GitHub Actions on every push (`.github/workflows/ci.yml`).
+The repository contains no client data, so CI also confirms that the service starts and explains itself when `data/` is missing.

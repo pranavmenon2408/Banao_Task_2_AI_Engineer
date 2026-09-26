@@ -1,4 +1,5 @@
 """Business and statistical metrics for a month of scored claims."""
+
 import numpy as np
 from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
 
@@ -63,6 +64,10 @@ def best_f1(y, p):
 
 def confusion_at(y, p, threshold):
     y, pred = np.asarray(y, int), (np.asarray(p) >= threshold).astype(int)
-    return {"tp": int(((pred == 1) & (y == 1)).sum()), "fp": int(((pred == 1) & (y == 0)).sum()),
-            "fn": int(((pred == 0) & (y == 1)).sum()), "tn": int(((pred == 0) & (y == 0)).sum()),
-            "accuracy": float((pred == y).mean())}
+    return {
+        "tp": int(((pred == 1) & (y == 1)).sum()),
+        "fp": int(((pred == 1) & (y == 0)).sum()),
+        "fn": int(((pred == 0) & (y == 1)).sum()),
+        "tn": int(((pred == 0) & (y == 0)).sum()),
+        "accuracy": float((pred == y).mean()),
+    }

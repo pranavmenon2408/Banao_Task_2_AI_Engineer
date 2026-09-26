@@ -4,10 +4,12 @@ The last month of the chosen date range is held out: progress metrics are measur
 curve shows whether the model generalises forward in time rather than how well it memorises.
 Optionally the model is then refitted on the whole range (the saved model is that refit).
 """
+
 import threading
 import traceback
 import uuid
 from datetime import datetime
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -24,13 +26,22 @@ MIN_TRAIN_FRAUDS = 15
 UPLOAD_DIR = ARTIFACT_DIR / "uploads"
 
 
-class TrainRequest(dict):
-    """Plain dict with defaults; validated in start()."""
-    DEFAULTS = dict(date_from=None, date_to=None, dataset_id=None, combine_with_history=True,
-                    sources=["crm", "legacy_zoho"],
-                    partner_types=["authorised_service_centre", "franchise", "freelance_technician"],
-                    families=None, n_estimators=LGBM_PARAMS["n_estimators"], learning_rate=LGBM_PARAMS["learning_rate"],
-                    num_leaves=LGBM_PARAMS["num_leaves"], monotone=True, zoho_negative_weight=0.8, refit_full=True)
+# Defaults for a training request; validated in JobManager.start()
+TRAIN_DEFAULTS: dict[str, Any] = dict(
+    date_from=None,
+    date_to=None,
+    dataset_id=None,
+    combine_with_history=True,
+    sources=["crm", "legacy_zoho"],
+    partner_types=["authorised_service_centre", "franchise", "freelance_technician"],
+    families=None,
+    n_estimators=LGBM_PARAMS["n_estimators"],
+    learning_rate=LGBM_PARAMS["learning_rate"],
+    num_leaves=LGBM_PARAMS["num_leaves"],
+    monotone=True,
+    zoho_negative_weight=0.8,
+    refit_full=True,
+)
 
 
 class JobManager:
@@ -65,7 +76,7 @@ class JobManager:
 
     def start(self, name, **kwargs):
         validate_name(name)
-        req = {**TrainRequest.DEFAULTS, **{k: v for k, v in kwargs.items() if v is not None}}
+        req = {**TRAIN_DEFAULTS, **{k: v for k, v in kwargs.items() if v is not None}}
         if req["date_from"] and req["date_to"] and pd.Timestamp(req["date_from"]) >= pd.Timestamp(req["date_to"]):
             raise ValueError("date_from must be before date_to")
         if not 10 <= int(req["n_estimators"]) <= 3000:
@@ -75,8 +86,17 @@ class JobManager:
         if self.scorer.history is None and not req["dataset_id"]:
             raise ValueError("claims history not loaded - put the data pack in data/ or upload a CSV")
         job_id = uuid.uuid4().hex[:10]
-        job = {"job_id": job_id, "name": name, "request": req, "status": "queued", "stage": "",
-               "progress_pct": 0, "history": [], "error": None, "started": datetime.now().isoformat(timespec="seconds")}
+        job = {
+            "job_id": job_id,
+            "name": name,
+            "request": req,
+            "status": "queued",
+            "stage": "",
+            "progress_pct": 0,
+            "history": [],
+            "error": None,
+            "started": datetime.now().isoformat(timespec="seconds"),
+        }
         with self._lock:
             self.jobs[job_id] = job
         threading.Thread(target=self._run, args=(job,), daemon=True).start()
@@ -121,11 +141,17 @@ class JobManager:
         valid_start = (end - pd.Timedelta(days=1)).to_period("M").start_time
         train, valid = data[data["ts"] < valid_start], data[data["ts"] >= valid_start]
         if train["is_fraud"].sum() < MIN_TRAIN_FRAUDS:
-            raise ValueError(f"only {int(train['is_fraud'].sum())} frauds before the hold-out month; "
-                             f"need at least {MIN_TRAIN_FRAUDS} - widen the date range or filters")
+            raise ValueError(
+                f"only {int(train['is_fraud'].sum())} frauds before the hold-out month; "
+                f"need at least {MIN_TRAIN_FRAUDS} - widen the date range or filters"
+            )
 
-        params = {**LGBM_PARAMS, "n_estimators": int(req["n_estimators"]), "learning_rate": float(req["learning_rate"]),
-                  "num_leaves": int(req["num_leaves"])}
+        params: dict[str, Any] = {
+            **LGBM_PARAMS,
+            "n_estimators": int(req["n_estimators"]),
+            "learning_rate": float(req["learning_rate"]),
+            "num_leaves": int(req["num_leaves"]),
+        }
         if req["monotone"]:
             params.update(mdl.monotone(FEATURES))
 
@@ -149,42 +175,88 @@ class JobManager:
                 job["history"].append(rec)
                 job["progress_pct"] = rec["pct"] if not req["refit_full"] else round(0.9 * rec["pct"])
 
-        self._update(job, stage=f"training on {len(train):,} claims, measuring on hold-out {valid_start:%b %Y} ({len(valid):,} claims)")
+        self._update(
+            job,
+            stage=f"training on {len(train):,} claims, measuring on hold-out {valid_start:%b %Y} ({len(valid):,} claims)",
+        )
         clf = lgb.LGBMClassifier(**params)
         eval_set = [(train[FEATURES], train["is_fraud"].astype(int))]
         names = ["train"]
         if has_valid_fraud:
             eval_set.append((valid[FEATURES], valid["is_fraud"].astype(int)))
             names.append("holdout")
-        clf.fit(train[FEATURES], train["is_fraud"].astype(int), sample_weight=weights(train),
-                eval_set=eval_set, eval_names=names, eval_metric=["binary_logloss", "average_precision"],
-                callbacks=[progress])
+        clf.fit(
+            train[FEATURES],
+            train["is_fraud"].astype(int),
+            sample_weight=weights(train),
+            eval_set=eval_set,
+            eval_names=names,
+            eval_metric=["binary_logloss", "average_precision"],
+            callbacks=[progress],
+        )
 
-        validation = {"holdout_month": f"{valid_start:%Y-%m}", "holdout_claims": len(valid),
-                      "holdout_frauds": int(valid["is_fraud"].sum())}
+        validation: dict[str, Any] = {
+            "holdout_month": f"{valid_start:%Y-%m}",
+            "holdout_claims": len(valid),
+            "holdout_frauds": int(valid["is_fraud"].sum()),
+        }
         if has_valid_fraud:
-            p = clf.predict_proba(valid[FEATURES])[:, 1]
-            validation.update(pr_auc=round(average_precision_score(valid["is_fraud"], p), 4),
-                              roc_auc=round(roc_auc_score(valid["is_fraud"], p), 4))
+            p = np.asarray(clf.predict_proba(valid[FEATURES]))[:, 1]
+            validation.update(
+                pr_auc=round(average_precision_score(valid["is_fraud"], p), 4),
+                roc_auc=round(roc_auc_score(valid["is_fraud"], p), 4),
+            )
 
         final, trained = clf, train
         if req["refit_full"]:
             self._update(job, stage="refitting on the full date range", progress_pct=92)
-            final = lgb.LGBMClassifier(**params).fit(data[FEATURES], data["is_fraud"].astype(int), sample_weight=weights(data))
+            final = lgb.LGBMClassifier(**params).fit(
+                data[FEATURES], data["is_fraud"].astype(int), sample_weight=weights(data)
+            )
             trained = data
 
-        meta = {"features": FEATURES, "params": {k: v for k, v in params.items() if k != "monotone_constraints"},
-                "monotone": bool(req["monotone"]), "created": datetime.now().isoformat(timespec="seconds"),
-                "subset": {**{k: req[k] for k in ["sources", "partner_types", "families", "zoho_negative_weight",
-                                                  "refit_full", "combine_with_history"]},
-                           "date_from": str(start.date()), "date_to": str((end - pd.Timedelta(days=1)).date()),
-                           "data": (f"uploaded {self.datasets[req['dataset_id']]['filename']}"
-                                    + (" + Kestrel history" if req["combine_with_history"] else " only"))
-                                   if req["dataset_id"] else "Kestrel history"},
-                "trained_on": {"claims": len(trained), "frauds": int(trained["is_fraud"].sum()),
-                               "from": str(trained["ts"].min()), "to": str(trained["ts"].max())},
-                "base_rate": float(trained["is_fraud"].mean()), "validation": validation,
-                "training_history": job["history"]}
+        meta = {
+            "features": FEATURES,
+            "params": {k: v for k, v in params.items() if k != "monotone_constraints"},
+            "monotone": bool(req["monotone"]),
+            "created": datetime.now().isoformat(timespec="seconds"),
+            "subset": {
+                **{
+                    k: req[k]
+                    for k in [
+                        "sources",
+                        "partner_types",
+                        "families",
+                        "zoho_negative_weight",
+                        "refit_full",
+                        "combine_with_history",
+                    ]
+                },
+                "date_from": str(start.date()),
+                "date_to": str((end - pd.Timedelta(days=1)).date()),
+                "data": (
+                    f"uploaded {self.datasets[req['dataset_id']]['filename']}"
+                    + (" + Kestrel history" if req["combine_with_history"] else " only")
+                )
+                if req["dataset_id"]
+                else "Kestrel history",
+            },
+            "trained_on": {
+                "claims": len(trained),
+                "frauds": int(trained["is_fraud"].sum()),
+                "from": str(trained["ts"].min()),
+                "to": str(trained["ts"].max()),
+            },
+            "base_rate": float(trained["is_fraud"].mean()),
+            "validation": validation,
+            "training_history": job["history"],
+        }
         self.registry.save(job["name"], final.booster_, meta)
-        self._update(job, status="done", stage="saved", progress_pct=100, validation=validation,
-                     finished=datetime.now().isoformat(timespec="seconds"))
+        self._update(
+            job,
+            status="done",
+            stage="saved",
+            progress_pct=100,
+            validation=validation,
+            finished=datetime.now().isoformat(timespec="seconds"),
+        )
