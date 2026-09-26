@@ -5,6 +5,16 @@ investigation desk, which can review 40 a month, and explains each score in plai
 
 No paid API or model key is used anywhere.
 
+## Deliverables
+
+| What | Where |
+|---|---|
+| Predictions for `test_unlabelled.csv` | [`predictions.csv`](predictions.csv) |
+| Evidence that it works, and how often it doesn't | [`docs/evidence.md`](docs/evidence.md) |
+| One-page memo to Ritu Deshpande | [`docs/memo_to_ritu.md`](docs/memo_to_ritu.md) |
+| Model-family comparison (LR, SVMs, forests vs LightGBM) | [`docs/model_comparison.md`](docs/model_comparison.md) |
+| Service: scoring API and Streamlit screen | `app/`, `ui/` (see *Run the service* below) |
+
 ## Setup (clean machine, Python 3.11+)
 
 ```bash
